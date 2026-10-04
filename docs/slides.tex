@@ -1,0 +1,229 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usepackage[T1]{fontenc}
+\usepackage{array}
+
+\setbeamertemplate{navigation symbols}{}
+
+\title{ShiftLens: Agentic Workforce Analytics}
+\subtitle{every shift tells a story; we connect it to the numbers}
+\author{}
+\date{October 2026}
+
+\begin{document}
+
+% ---------- Slide 1: Title ----------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% ---------- Slide 2: Problem ----------
+\begin{frame}{The problem: daily signals, monthly answers}
+  \begin{itemize}
+    \item Every workday produces rich \textbf{daily signals} --- wearable
+          sensors, micro-survey answers, object-detection events --- but they
+          stay fragmented across systems.
+    \item \textbf{Productivity} (units, defects) is only read at month's end:
+          by the time a bad month is visible, its causes are weeks old.
+    \item Nobody connects \emph{conditions and wellbeing} --- noise, heat,
+          fatigue, mood --- to \emph{output}, per worker, per day.
+  \end{itemize}
+  \begin{block}{The gap ShiftLens closes}
+    Ingest every worker's day, write an agent-authored report per worker per
+    day, and at month's end correlate wellbeing and conditions with
+    productivity --- deterministically.
+  \end{block}
+\end{frame}
+
+% ---------- Slide 3: System in one picture ----------
+\begin{frame}{The system in one picture}
+  \begin{center}
+    \textbf{1. Daily ingestion}\\[2pt]
+    \texttt{data/daily/YYYY-MM-DD.json} --- environment + 8 workers\\
+    sensors \textbullet{} micro-survey \textbullet{} detections \textbullet{} output\\[6pt]
+    $\Downarrow$ \quad each day\\[4pt]
+    \textbf{2. Agent daily reports}\\[2pt]
+    deterministic metrics $\rightarrow$ flag rules $\rightarrow$ prose summary\\
+    \texttt{out/daily\_reports/DATE/W01.json + .md} --- one per worker per day\\[6pt]
+    $\Downarrow$ \quad after 30 days\\[4pt]
+    \textbf{3. Monthly correlation dashboard}\\[2pt]
+    \texttt{out/monthly.json}: 7 correlations + findings over 240 worker-days\\
+    served as an offline single-page dashboard (FastAPI, port 8200)
+  \end{center}
+  One command runs the pipeline: \texttt{demo} = simulate $\rightarrow$ report
+  $\rightarrow$ monthly; \texttt{serve} starts the dashboard.
+\end{frame}
+
+% ---------- Slide 4: What we collect ----------
+\begin{frame}{What we collect}
+  8 workers --- assembler, packer, inspector, forklift-operator --- $\times$
+  30 days (September 2026) $=$ 240 worker-days.
+  \vspace{1ex}
+
+  {\small
+  \begin{tabular}{@{}p{0.30\textwidth}>{\raggedright\arraybackslash}p{0.64\textwidth}@{}}
+    \textbf{Stream} & \textbf{Signals}\\
+    \hline\\[-1.8ex]
+    Environment (per day) & \texttt{noise\_db}, \texttt{temperature\_c}, \texttt{air\_quality\_pm25}\\[0.4ex]
+    Sensors (per worker-day) & \texttt{hr\_avg}, \texttt{hr\_max}, \texttt{steps}, \texttt{station\_time\_min}\\[0.4ex]
+    Object detection & \texttt{ppe\_ok\_pct}, \texttt{phone\_events}, \texttt{idle\_events}, \texttt{safety\_zone\_violations}\\[0.4ex]
+    Micro-survey & \texttt{fatigue}, \texttt{mood}, \texttt{perceived\_productivity}, free-text \texttt{blockers}\\[0.4ex]
+    Output & \texttt{units}, \texttt{defects}, \texttt{tasks\_completed}\\
+  \end{tabular}}
+  \vspace{1ex}
+
+  Demo data comes from a seeded simulator (\texttt{random.Random(42)}) ---
+  reproducible, with causal structure planted for the analytics to rediscover.
+\end{frame}
+
+% ---------- Slide 5: The agent ----------
+\begin{frame}{The agent: deterministic core, LLM at the edges}
+  \begin{block}{Metrics --- pure functions of the day record}
+    \small
+    \begin{align*}
+      \text{fatigue\_index} &= 0.6\cdot\tfrac{\text{fatigue}}{5} \;+\; 0.4\cdot\tfrac{\min(\text{hr\_avg}/100,\;1.2)}{1.2}\\[2pt]
+      \text{focus\_score} &= \operatorname{clamp}\bigl(1 - 0.08\cdot\text{phone\_events} - 0.03\cdot\text{idle\_events},\; 0,\; 1\bigr)\\[2pt]
+      \text{safety\_score} &= \operatorname{clamp}\bigl(\text{ppe\_ok\_pct}/100 - 0.25\cdot\text{safety\_zone\_violations},\; 0,\; 1\bigr)\\[2pt]
+      \text{productivity} &= \text{units, normalized per worker vs.\ their own 30-day mean}
+    \end{align*}
+  \end{block}
+  \begin{block}{Flags --- fixed thresholds, no judgement calls}
+    \small
+    \texttt{high\_fatigue}: fatigue\_index $\geq 0.6$ \quad
+    \texttt{low\_focus}: focus\_score $< 0.7$ \quad
+    \texttt{safety\_risk}: safety\_score $< 0.85$ \quad
+    \texttt{defect\_spike}: defects $\geq 2\times$ worker mean
+  \end{block}
+  \textbf{The LLM phrases; it never decides.} An optional local model (LM
+  Studio, OpenAI-compatible) only rewrites the report's prose summary --- the
+  prompt forbids inventing numbers, and a template takes over when the model
+  is offline.
+\end{frame}
+
+% ---------- Slide 6: A daily report ----------
+\begin{frame}[fragile]{A daily report --- Aria Kim (W01), 2026-09-01}
+  \begin{columns}[T]
+    \column{0.52\textwidth}
+    {\footnotesize
+\begin{verbatim}
+out/daily_reports/2026-09-01/W01.json
+{
+  "worker_id": "W01",
+  "date": "2026-09-01",
+  "metrics": {
+    "fatigue_index": 0.643,
+    "focus_score": 0.83,
+    "safety_score": 0.985,
+    "units": 145,
+    "defects": 4
+  },
+  "flags": ["high_fatigue"],
+  "summary": "Aria Kim (W01, assembler,
+    day shift) produced 145 units with
+    4 defects ... Flags: high_fatigue."
+}
+\end{verbatim}}
+    \column{0.46\textwidth}
+    \begin{itemize}
+      \item One JSON + one Markdown file per worker per day (real demo
+            output shown).
+      \item \texttt{high\_fatigue} fired because fatigue\_index
+            $0.643 \geq 0.6$ --- a fixed threshold, no judgement call.
+      \item The summary \emph{always} lists the numbers --- the LLM may only
+            rephrase them, never invent new ones.
+      \item The Markdown twin is what the dashboard's report browser renders.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+% ---------- Slide 7: Monthly analytics ----------
+\begin{frame}{Monthly analytics: what the month was telling you}
+  \begin{itemize}
+    \item Correlations across all $n = 8 \times 30 = 240$ worker-days ---
+          Pearson $r$ via the standard library (no pandas/numpy).
+    \item Seven pairs: fatigue $\leftrightarrow$ units,
+          fatigue $\leftrightarrow$ defects, noise $\leftrightarrow$ defects,
+          temperature $\leftrightarrow$ \texttt{ppe\_ok\_pct},
+          phone events $\leftrightarrow$ units, mood $\leftrightarrow$ units,
+          \texttt{focus\_score} $\leftrightarrow$ units.
+  \end{itemize}
+  \begin{block}{Example correlation card (real demo output)}
+    fatigue $\leftrightarrow$ units:\quad $r = -0.61$, $n = 240$ \quad
+    \emph{``Higher fatigue strongly tracks lower output''}
+  \end{block}
+  \begin{block}{Findings --- threshold splits, computed from data, never hardcoded}
+    ``Days above 85~dB average 122\% more defects per worker than quieter
+    days (5.8 vs 2.6)''\\
+    ``Worker-days with fatigue $\geq 4$ produce 21\% fewer units than days
+    with fatigue $\leq 2$ (114 vs 145)''
+  \end{block}
+  {\small The simulator plants these links (noise $> 85$~dB $\rightarrow$
+  defects $\uparrow$; fatigue $\uparrow$ $\rightarrow$ units $\downarrow$;
+  temperature $> 28\,^{\circ}$C $\rightarrow$ PPE compliance $\downarrow$;
+  phone events $\uparrow$ $\rightarrow$ units $\downarrow$) --- the smoke
+  test asserts the analytics recover them.}
+\end{frame}
+
+% ---------- Slide 8: Dashboard tour ----------
+\begin{frame}{Dashboard tour}
+  Single page, vanilla JS + inline SVG, \textbf{no CDN} --- works on a closed
+  network. FastAPI on port 8200 (probes 8200--8209 if busy).
+  \vspace{1ex}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{itemize}
+      \item \textbf{Correlation scatter} with trend line
+      \item \textbf{Team daily line chart} --- units vs fatigue
+      \item \textbf{Per-worker bar chart}
+      \item \textbf{Findings cards}
+      \item \textbf{Daily-report browser} --- pick date $\rightarrow$ pick
+            worker $\rightarrow$ rendered report
+    \end{itemize}
+    \column{0.50\textwidth}
+    \begin{block}{API}
+      \small
+      \texttt{GET /api/monthly} --- \texttt{monthly.json} (404 until generated)\\[2pt]
+      \texttt{GET /api/daily/\{date\}} --- that day's reports\\[2pt]
+      \texttt{GET /api/dates} --- list of report dates
+    \end{block}
+  \end{columns}
+\end{frame}
+
+% ---------- Slide 9: Trust & privacy ----------
+\begin{frame}{Trust \& privacy}
+  \begin{itemize}
+    \item \textbf{Deterministic core.} Every metric, flag, correlation and
+          finding is a pure Python function --- auditable and reproducible.
+    \item \textbf{The LLM phrases; it never decides.} An optional local LM
+          Studio model rewrites prose only; the prompt forbids inventing
+          numbers; a template fallback keeps everything working offline.
+    \item \textbf{Aggregate-first analytics.} Monthly correlations run over
+          all 240 worker-days; findings are team-level threshold splits.
+    \item \textbf{Consent \& ethics.} Survey answers are self-reported; deploy
+          with informed consent --- every number on screen traces back to a
+          published formula and the raw day record.
+    \item \textbf{Offline-capable.} Only \texttt{fastapi} + \texttt{uvicorn},
+          a no-CDN dashboard and a local LLM --- data never has to leave the site.
+  \end{itemize}
+\end{frame}
+
+% ---------- Slide 10: Roadmap & close ----------
+\begin{frame}{Roadmap \& close}
+  \begin{itemize}
+    \item \textbf{Real sensor integration} --- swap the seeded simulator for
+          live wearable and vision feeds; the daily JSON contract stays the same.
+    \item \textbf{Alert subscriptions} --- get notified the moment a flag rule
+          trips (\texttt{safety\_risk}, \texttt{high\_fatigue}, \dots).
+    \item \textbf{Multi-site} --- run the same pipeline per site and compare
+          correlations and findings across locations.
+  \end{itemize}
+  \begin{block}{Try it}
+    \texttt{../.venv/bin/python -m shiftlens.cli demo} \quad then \quad
+    \texttt{../.venv/bin/python -m shiftlens.cli serve}
+    $\rightarrow$ \texttt{http://localhost:8200}
+  \end{block}
+  \centering\emph{every shift tells a story; we connect it to the numbers.}
+\end{frame}
+
+\end{document}

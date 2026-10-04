@@ -1,0 +1,4 @@
+# ShiftLens — Python 3.12. The engine is stdlib-only; these two deps are
+# used by the dashboard (shiftlens/dashboard/server.py) only.
+fastapi>=0.110
+uvicorn>=0.29

@@ -1,0 +1,13 @@
+data/
+out/
+__pycache__/
+*.pyc
+.DS_Store
+docs/*.pdf
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.nav
+docs/*.snm
+docs/*.toc
+*.vrb

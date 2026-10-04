@@ -1,0 +1,110 @@
+% ShiftLens technical specification (exactly 1 A4 page, pdflatex)
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue!45!black]{hyperref}
+
+\definecolor{slblue}{RGB}{20,60,120}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\newcommand{\hd}[1]{\vspace{5pt}{\bfseries\color{slblue}#1}\par\vspace{1pt}}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries\color{slblue} ShiftLens --- Technical Specification v1}\\[1pt]
+{\small Agentic workforce analytics: daily ingestion of sensor, survey, and object-detection
+streams $\to$ deterministic per-worker reports $\to$ monthly correlation analytics $\to$
+offline dashboard. Guiding principle: \emph{the LLM phrases; it never decides}.}
+\end{center}
+\vspace{-2pt}
+
+\hd{Stack}
+\begin{tabular}{@{}p{2.6cm}p{15.1cm}@{}}
+Language / runtime & Python 3.12; Pearson $r$ via stdlib \texttt{statistics}; no pandas/numpy\\
+Web server & FastAPI + uvicorn (only third-party deps); port 8200, probes 8200--8209\\
+LLM (optional) & LM Studio, OpenAI-compatible; rewrites prose summary only (prompt forbids
+inventing numbers); template fallback when offline\\
+Invocation & \texttt{../.venv/bin/python -m shiftlens.cli <cmd>} from \texttt{ShiftLens/}\\
+\end{tabular}
+
+\hd{Data schemas}
+\begin{tabular}{@{}p{3.4cm}p{14.3cm}@{}}
+\texttt{workers.json} & \texttt{\{"workers":[\{worker\_id, name, role, shift,
+base\_skill\}]\}} --- 8 workers; role $\in$ \{assembler, packer, inspector,
+forklift-operator\}; \texttt{base\_skill} $\in [0.85, 1.20]$\\
+\texttt{data/daily/}\newline\texttt{YYYY-MM-DD.json} & \texttt{\{date, environment\{noise\_db,
+temperature\_c, air\_quality\_pm25\}, workers[\{worker\_id, sensors\{hr\_avg, hr\_max,
+steps, station\_time\_min\}, detections\{ppe\_ok\_pct, phone\_events, idle\_events,
+safety\_zone\_violations\}, survey\{fatigue, mood, perceived\_productivity, blockers\},
+output\{units, defects, tasks\_completed\}\}]\}} --- 30 days from 2026-09-01; simulator
+\texttt{random.Random(42)}\\
+daily report & \texttt{out/daily\_reports/DATE/WID.json} + \texttt{.md}:
+\texttt{\{worker\_id, date, metrics\{fatigue\_index, focus\_score, safety\_score, units,
+defects\}, flags[], summary\}}\\
+\texttt{out/monthly.json} & \texttt{\{period, team\_daily[]\{date, units, defects,
+fatigue\_avg, noise\_db\}, workers[]\{worker\_id, name, units\_total, defect\_rate,
+fatigue\_avg, focus\_avg, safety\_avg\}, correlations[]\{x, y, r, n, insight\},
+findings[]\}}\\
+\end{tabular}
+
+\hd{Metrics (pure functions; $\operatorname{clamp}(x,0,1)=\min(\max(x,0),1)$)}
+\texttt{fatigue\_index} $= 0.6\cdot(\texttt{fatigue}/5) +
+0.4\cdot\min(\texttt{hr\_avg}/100,\,1.2)/1.2$ \hfill
+\texttt{focus\_score} $= \operatorname{clamp}(1 - 0.08\,\texttt{phone\_events} -
+0.03\,\texttt{idle\_events},\,0,1)$\\[1pt]
+\texttt{safety\_score} $= \operatorname{clamp}(\texttt{ppe\_ok\_pct}/100 -
+0.25\,\texttt{safety\_zone\_violations},\,0,1)$ \hfill
+\texttt{productivity} $=$ \texttt{units}, normalized per worker vs.\ own 30-day mean
+
+\hd{Flags (deterministic threshold rules)}
+\texttt{high\_fatigue}: $\texttt{fatigue\_index} \ge 0.6$ \hfill
+\texttt{low\_focus}: $\texttt{focus\_score} < 0.7$ \hfill
+\texttt{safety\_risk}: $\texttt{safety\_score} < 0.85$ \hfill
+\texttt{defect\_spike}: $\texttt{defects} \ge 2\times$ worker mean
+
+\hd{Monthly analytics}
+Pearson $r$ over all (worker, day) pairs, $n = 8 \times 30 = 240$; 7 pairs:
+fatigue$\leftrightarrow$units, fatigue$\leftrightarrow$defects,
+noise$\leftrightarrow$defects, temperature$\leftrightarrow$\texttt{ppe\_ok\_pct},
+\texttt{phone\_events}$\leftrightarrow$units, mood$\leftrightarrow$units,
+\texttt{focus\_score}$\leftrightarrow$units. Findings $=$ threshold splits (e.g.\ mean
+defects on $>85$~dB vs.\ $\le 85$~dB days, \% delta) --- computed from data, never
+hardcoded. Planted simulator effects to rediscover: noise $>85 \to$ defects $\uparrow$;
+fatigue $\uparrow \to$ units $\downarrow$, defects $\uparrow$; temperature $>28 \to$ PPE
+$\downarrow$; phone events $\uparrow \to$ units $\downarrow$.
+
+\hd{API (FastAPI, port 8200; probes 8200--8209)}
+\begin{tabular}{@{}p{3.6cm}p{14.1cm}@{}}
+\texttt{GET /} & single-page dashboard, vanilla JS + inline SVG, no CDN (offline):
+correlation scatter + trend line, team units vs.\ fatigue, per-worker bars, findings
+cards, daily-report browser (date $\to$ worker $\to$ markdown)\\
+\texttt{GET /api/monthly} & \texttt{out/monthly.json} (404 until generated)\\
+\texttt{GET /api/daily/\{date\}} & that day's per-worker reports\\
+\texttt{GET /api/dates} & list of report dates\\
+\end{tabular}
+
+\hd{CLI (\texttt{python -m shiftlens.cli})}
+\texttt{simulate} (generate dataset) \hfill \texttt{report [--date D]} (daily reports)
+\hfill \texttt{monthly} (analytics) \hfill \texttt{serve} (dashboard) \hfill
+\texttt{demo} (simulate $\to$ report $\to$ monthly, print findings)
+
+\hd{Environment variables}
+\texttt{SHIFTLENS\_LMS\_HOST} --- LM Studio endpoint (default
+\url{http://localhost:1234}) \hfill \texttt{SHIFTLENS\_LMS\_MODEL} --- model name
+(default \texttt{bonsai-27b})
+
+\hd{Tests}
+\texttt{tests/test\_smoke.py}: end-to-end demo into a tmp data dir; asserts
+\texttt{monthly.json} has the 7 correlations with $|r|>0$ for the planted signals, daily
+reports exist for all workers, dashboard module imports.
+
+\end{document}

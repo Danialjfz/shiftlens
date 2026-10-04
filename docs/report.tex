@@ -1,0 +1,283 @@
+% ShiftLens competition report (max 5 A4 pages, pdflatex)
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue!45!black]{hyperref}
+
+\definecolor{slblue}{RGB}{20,60,120}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt plus 1pt}
+\setlist{nosep,leftmargin=1.5em}
+
+\title{\textcolor{slblue}{\textbf{ShiftLens}}\\[2pt]
+\large Agentic Workforce Analytics for Productivity and Wellbeing}
+\author{ShiftLens Team}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+ShiftLens is an agentic workforce-analytics system for shift teams on a
+production floor. Every day it ingests each worker's wearable and
+environmental sensor streams, micro-survey answers, and camera-based
+object-detection events, and writes an agent-authored daily report per
+worker; at month's end it correlates wellbeing and working conditions with
+productivity and serves an offline-capable dashboard of findings. All
+metrics, flags, correlations, and findings are produced by a deterministic
+Python core --- the guiding principle is \emph{the LLM phrases; it never
+decides}: an optional local LLM only rewrites the prose summary, and
+everything works with the LLM offline. A seeded simulator with planted
+causal structure stands in for real feeds in the demo and provides the
+ground truth used to validate the analytics end-to-end.
+\end{abstract}
+
+\section{Introduction and problem}
+Supervisors of shift teams --- assemblers, packers, inspectors, forklift
+operators --- sit on fragmented data. Wearables report heart rate, steps,
+and station time; environmental sensors log noise, temperature, and air
+quality; camera systems emit object-detection events such as PPE
+non-compliance, phone use, idle periods, and safety-zone violations; short
+daily surveys capture fatigue and mood. Each stream lives in its own silo,
+and none of it is joined up with the numbers that matter: units produced
+and defects.
+
+Three pain points follow. \textbf{Fragmentation}: no single place shows one
+worker's day across all sources. \textbf{Latency}: productivity is typically
+reviewed in aggregate at month's end, so problems --- a noisy line, a heat
+wave, a fatigued crew --- are discovered weeks after they start costing
+output and quality. \textbf{No wellbeing--output link}: fatigue and mood
+are collected but never connected to output, so the cost of poor conditions
+stays invisible.
+
+ShiftLens addresses all three. A daily agent fuses every stream into an
+interpretable per-worker report with metrics and flags; a monthly analytics
+layer answers the question managers actually ask --- \emph{which conditions
+move output and defects?} --- with correlations and threshold-split
+findings computed from the data itself. Two constraints shape the design:
+decision logic must be deterministic and auditable (an LLM may phrase a
+report but never decides anything in it), and the system must respect
+workers (aggregate-first analytics, consent, no disciplinary use).
+
+\section{System overview and architecture}
+ShiftLens is a Python~3.12 application with a deliberately thin dependency
+footprint: FastAPI and uvicorn are the only third-party packages, and
+Pearson correlation is computed with the standard library --- no
+pandas/numpy. The moving parts:
+
+\begin{itemize}
+\item \textbf{Daily ingestion.} One JSON file per day holds the shared
+environment record (noise, temperature, PM2.5) and, per worker, wearable
+sensor summaries, object-detection events (PPE compliance, phone and idle
+events, safety-zone violations), a four-field micro-survey (fatigue, mood,
+perceived productivity, free-text blockers), and the day's output (units,
+defects, tasks completed).
+\item \textbf{Deterministic agent core.} Pure functions compute three
+indices in $[0,1]$ --- fatigue, focus, safety --- plus productivity;
+threshold rules turn them into flags; a report writer emits one JSON +
+Markdown report per worker per day. Every number in a report is produced by
+code.
+\item \textbf{LLM phrasing layer (optional).} A local LM Studio server
+(OpenAI-compatible API) rewrites only the prose summary; the prompt forbids
+inventing numbers, and a template fallback produces the summary when the
+model is offline. \emph{The LLM phrases; it never decides.}
+\item \textbf{Monthly analytics.} Pearson correlations across all
+(worker, day) pairs plus threshold-split findings (e.g.\ mean defects on
+days above vs.\ below 85~dB), emitted as \texttt{monthly.json} with a
+human-readable insight per correlation.
+\item \textbf{Dashboard.} A FastAPI single-page app --- vanilla JS with
+inline SVG charts and no CDN, so it works fully offline --- showing
+correlation scatters with trend lines, team daily units vs.\ fatigue,
+per-worker bars, finding cards, and a daily-report browser.
+\item \textbf{CLI.} \texttt{simulate} $\to$ \texttt{report} $\to$
+\texttt{monthly} $\to$ \texttt{serve}, or \texttt{demo} for the whole
+pipeline with a printed findings summary.
+\end{itemize}
+
+\section{Data model and simulation}
+The dataset covers 8 workers (roles: assembler, packer, inspector, forklift
+operator; per-worker \texttt{base\_skill} in $[0.85, 1.20]$ that scales
+output) over 30 days starting 2026-09-01, i.e.\ $8 \times 30 = 240$
+(worker, day) records. Static worker metadata (id, name, role, shift, base
+skill) lives in \texttt{workers.json}; Table~\ref{tab:schema} summarizes
+the daily record.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Daily record (\texttt{data/daily/YYYY-MM-DD.json}): one shared
+environment block plus one entry per worker per day.}
+\label{tab:schema}
+\begin{tabular}{@{}p{2.1cm}p{8.8cm}p{4.7cm}@{}}
+\toprule
+Group & Fields & Source \\
+\midrule
+\texttt{environment} & \texttt{noise\_db}, \texttt{temperature\_c},
+  \texttt{air\_quality\_pm25} & environmental sensors (shared, per day)\\
+\texttt{sensors} & \texttt{hr\_avg}, \texttt{hr\_max}, \texttt{steps},
+  \texttt{station\_time\_min} & wearable stream\\
+\texttt{detections} & \texttt{ppe\_ok\_pct}, \texttt{phone\_events},
+  \texttt{idle\_events}, \texttt{safety\_zone\_violations} &
+  object-detection events\\
+\texttt{survey} & \texttt{fatigue}, \texttt{mood},
+  \texttt{perceived\_productivity}, \texttt{blockers} &
+  daily micro-survey (1--5 + free text)\\
+\texttt{output} & \texttt{units}, \texttt{defects},
+  \texttt{tasks\_completed} & shift output record\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the demo, real feeds are replaced by a seeded simulator
+(\texttt{random.Random(42)}). The simulator plants a known causal
+structure that the analytics must rediscover --- findings are computed
+from data, never hardcoded:
+
+\begin{itemize}
+\item noisy days (\texttt{noise\_db} $> 85$~dB) push the defect rate up;
+\item higher self-reported fatigue pushes units down and defects up;
+\item hot days (\texttt{temperature\_c} $> 28\,^\circ$C) reduce PPE
+compliance;
+\item phone events --- more likely on low-mood days --- reduce units;
+\item per-worker base skill scales units; small daily noise everywhere.
+\end{itemize}
+
+The planted structure plays the role of ground truth: the monthly layer is
+only correct if it recovers these effects from the raw records alone.
+
+\section{Agent design: metrics, flags, LLM polish}
+\textbf{Metrics.} All metrics are pure functions of one worker-day record.
+The three composite indices blend survey and sensor evidence into $[0,1]$
+scores, with $\operatorname{clamp}(x,0,1)=\min(\max(x,0),1)$:
+\begin{align}
+\texttt{fatigue\_index} &=
+  0.6\cdot\frac{\texttt{fatigue}}{5} \;+\;
+  0.4\cdot\frac{\min(\texttt{hr\_avg}/100,\;1.2)}{1.2}
+  \label{eq:fatigue}\\[2pt]
+\texttt{focus\_score} &=
+  \operatorname{clamp}\bigl(1 - 0.08\cdot\texttt{phone\_events}
+  - 0.03\cdot\texttt{idle\_events},\;0,\;1\bigr)
+  \label{eq:focus}\\[2pt]
+\texttt{safety\_score} &=
+  \operatorname{clamp}\bigl(\texttt{ppe\_ok\_pct}/100
+  - 0.25\cdot\texttt{safety\_zone\_violations},\;0,\;1\bigr)
+  \label{eq:safety}
+\end{align}
+Productivity is the raw \texttt{units} count, normalized per worker against
+that worker's own 30-day mean before any cross-worker comparison, so a
+skilled assembler and a novice are each judged against their own baseline.
+
+\textbf{Flags.} Flags are deterministic threshold rules over the metrics
+(Table~\ref{tab:flags}); they are the only mechanism by which a report
+raises a hand.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Deterministic flag rules evaluated on every worker-day.}
+\label{tab:flags}
+\begin{tabular}{@{}llp{6.9cm}@{}}
+\toprule
+Flag & Rule & What drives it \\
+\midrule
+\texttt{high\_fatigue} & $\texttt{fatigue\_index} \ge 0.6$ &
+  high survey fatigue and/or elevated heart rate\\
+\texttt{low\_focus} & $\texttt{focus\_score} < 0.7$ &
+  phone and idle events beyond tolerance\\
+\texttt{safety\_risk} & $\texttt{safety\_score} < 0.85$ &
+  PPE non-compliance and/or safety-zone violations\\
+\texttt{defect\_spike} & $\texttt{defects} \ge 2\times$ worker mean &
+  quality outlier against the worker's own baseline\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Report and LLM polish.} The daily report
+(\texttt{out/daily\_reports/}$\langle$\textit{date}$\rangle$/%
+$\langle$\textit{worker}$\rangle$\texttt{.json} + \texttt{.md}) bundles the
+metrics, the triggered flags, and a prose summary. The summary
+\emph{always} lists the underlying numbers; the optional LLM (LM Studio,
+\texttt{SHIFTLENS\_LMS\_HOST} default \url{http://localhost:1234}, model
+\texttt{SHIFTLENS\_LMS\_MODEL} default \texttt{bonsai-27b}) only rephrases
+it, under a prompt that forbids inventing numbers. When the model is
+unreachable, a template produces the same content. Every factual claim in
+a report therefore stays traceable to code, while supervisors still get
+natural-language text.
+
+\section{Monthly analytics}
+The monthly pass aggregates the 240 worker-day records into
+\texttt{out/monthly.json}: a team daily series (units, defects, average
+fatigue, noise), per-worker aggregates (total units, defect rate, average
+fatigue/focus/safety), correlations, and findings. Correlations are
+Pearson's $r$ over all (worker, day) pairs ($n = 240$), computed with the
+standard library only:
+\[
+r \;=\; \frac{\sum_{i=1}^{n}(x_i-\bar{x})(y_i-\bar{y})}
+{\sqrt{\sum_{i=1}^{n}(x_i-\bar{x})^2}\;\sqrt{\sum_{i=1}^{n}(y_i-\bar{y})^2}}
+\]
+Seven predeclared pairs are evaluated: fatigue $\leftrightarrow$ units,
+fatigue $\leftrightarrow$ defects, noise $\leftrightarrow$ defects,
+temperature $\leftrightarrow$ PPE compliance,
+phone events $\leftrightarrow$ units, mood $\leftrightarrow$ units, and
+focus score $\leftrightarrow$ units. Each result ships with $x$, $y$, $r$,
+$n$, and a generated insight string.
+
+Findings are produced by threshold splits rather than hardcoded
+statements: the code bins days (e.g.\ $>85$ vs.\ $\le 85$~dB), computes the
+group means and the percent delta, and emits a sentence. In the seeded
+reference run described in the design contract, the analytics recover the
+planted structure: the seeded reference run shows
+fatigue$\leftrightarrow$units at $r = -0.61$ (\emph{``Higher fatigue
+strongly tracks lower output''}) and findings such as \emph{``Days above
+85~dB average 122\% more defects per worker than quieter days (5.8 vs
+2.6)''}.
+
+\section{Evaluation and discussion}
+\textbf{Validation.} An end-to-end smoke test runs the demo pipeline into a
+temporary data directory and asserts that \texttt{monthly.json} contains
+the seven correlations with $|r|>0$ for the planted signals, that daily
+reports exist for every worker, and that the dashboard module imports. More
+importantly, the simulator's planted causal structure provides real ground
+truth: the analytics are judged by whether they rediscover the
+noise--defect, fatigue--units, temperature--PPE, and phone--units effects,
+in the right direction, with none of them hardcoded.
+
+\textbf{What the dashboard reveals.} On one page a supervisor sees which
+conditions correlate with output and defects (scatter plots with trend
+lines), how team units and average fatigue move together across the month,
+per-worker bars, finding cards in plain language, and a browser that drills
+from a finding into any worker's daily report (pick a date, pick a worker,
+read the rendered Markdown). The intent is to move the conversation from
+end-of-month surprise to same-week action: fix the noisy line, rotate
+fatigued workers, double down on PPE compliance on hot days.
+
+\textbf{Limitations.} The demo runs on simulated data; $30$ days $\times$
+$8$ workers is a small sample for correlation; Pearson's $r$ captures only
+linear association, and the observed correlations are observational, not
+causal; the three indices are heuristic composites with hand-set weights;
+per-worker normalization hides absolute differences between workers.
+
+\textbf{Privacy and ethics.} The monthly layer is aggregate-first:
+management-facing analytics default to team-level findings. Wearable and
+survey data require worker consent, and daily reports are a coaching and
+self-knowledge tool --- explicitly not an input to disciplinary action. All
+processing is local (standard library plus an optional local LLM); no data
+leaves the machine, and the dashboard works fully offline.
+
+\section{Conclusion}
+ShiftLens shows that a useful agentic system does not need an LLM in the
+decision path. A deterministic core turns fragmented daily streams into
+interpretable per-worker reports; a monthly analytics layer reconnects
+wellbeing and working conditions to output and quality; an optional local
+LLM adds fluent prose without ever inventing a fact. Validated against
+planted ground truth, the pipeline recovers the effects it should --- and
+every number on the dashboard is traceable to code. Next steps are real
+sensor connectors, longer observation windows, and richer (still auditable)
+models beyond linear correlation.
+
+\end{document}
