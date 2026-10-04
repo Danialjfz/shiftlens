@@ -11,3 +11,4 @@ docs/*.nav
 docs/*.snm
 docs/*.toc
 *.vrb
+.DS_Store
