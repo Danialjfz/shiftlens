@@ -1,6 +1,6 @@
 % ShiftLens competition report (max 5 A4 pages, pdflatex)
 \documentclass[11pt,a4paper]{article}
-\usepackage[margin=2.2cm]{geometry}
+\usepackage[margin=2.05cm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{microtype}
@@ -9,10 +9,14 @@
 \usepackage{xcolor}
 \usepackage{enumitem}
 \usepackage[colorlinks=true,linkcolor=black,urlcolor=blue!45!black]{hyperref}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,positioning}
 
 \definecolor{slblue}{RGB}{20,60,120}
+\definecolor{slorange}{RGB}{200,90,20}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{4pt plus 1pt}
+\setlength{\parskip}{3pt plus 1pt}
 \setlist{nosep,leftmargin=1.5em}
 
 \title{\textcolor{slblue}{\textbf{ShiftLens}}\\[2pt]
@@ -34,12 +38,11 @@ productivity and serves an offline-capable dashboard of findings. All
 metrics, flags, correlations, and findings are produced by a deterministic
 Python core --- the guiding principle is \emph{the LLM phrases; it never
 decides}: an optional local LLM only rewrites the prose summary, and
-everything works with the LLM offline. On top of that core, a five-role
-agent team (orchestrator, planner, investigator, drafter, verifier)
+everything works with the LLM offline. On top of that core, a five-role agent team
 investigates flagged worker-days and drafts the monthly narrative through
-a read-only tool registry, while a verifier agent re-computes every numeric
-claim before anything is published --- a multi-agent system with tool use
-and self-verification, fully offline-capable. A seeded simulator with
+a read-only tool registry, while a verifier re-computes every numeric
+claim before anything is published --- multi-agent, self-verifying, fully
+offline-capable. A seeded simulator with
 planted causal structure provides ground truth for end-to-end validation.
 \end{abstract}
 
@@ -61,14 +64,24 @@ quality. \textbf{No wellbeing--output link}: fatigue and mood are collected
 but never connected to output, so the cost of poor conditions stays
 invisible.
 
+\textbf{Why this matters.} Fatigue, heat and noise are not dashboard
+niceties --- they are leading indicators of the two costs every production
+floor already counts (defects and accidents) and of the one it feels most:
+people burning out and leaving. The link between working conditions and
+output is real, but invisible while the streams stay siloed; making it
+visible turns workforce wellbeing from a compliance topic into an
+operational lever. And because such analytics concern people, the numbers
+must be re-checkable --- a system that nudges decisions about working
+conditions has to be traceable to evidence, not to a model's confidence.
+That is why ShiftLens is deliberately agentic \emph{and} deterministic.
+
 ShiftLens addresses all three. A daily agent fuses every stream into an
 interpretable per-worker report with metrics and flags; a monthly analytics
-layer answers the question managers actually ask --- \emph{which conditions
-move output and defects?} --- with correlations and threshold-split
-findings computed from the data itself; and a v2 agentic layer answers the
-follow-up --- \emph{why, and are we sure?} --- with a team of investigating
-agents whose every published number is verified against tool data
-(Section~\ref{sec:agents}). Two constraints shape the design:
+layer answers \emph{which conditions move output and defects?} with
+correlations and threshold-split findings computed from the data itself;
+and a v2 agentic layer answers the follow-up --- \emph{why, and are we
+sure?} --- with a team of investigating agents whose every published number
+is verified against tool data (Section~\ref{sec:agents}). Two constraints shape the design:
 decision logic must be deterministic and auditable (an LLM may phrase a
 report but never decides anything in it), and the system must respect
 workers (aggregate-first analytics, consent, no disciplinary use).
@@ -81,11 +94,9 @@ pandas/numpy. The moving parts:
 
 \begin{itemize}
 \item \textbf{Daily ingestion.} One JSON file per day holds the shared
-environment record (noise, temperature, PM2.5) and, per worker, wearable
-sensor summaries, object-detection events (PPE compliance, phone and idle
-events, safety-zone violations), a four-field micro-survey (fatigue, mood,
-perceived productivity, free-text blockers), and the day's output (units,
-defects, tasks completed).
+environment record and, per worker, wearable sensor summaries,
+object-detection events, a four-field micro-survey, and the day's output
+(Table~\ref{tab:schema}).
 \item \textbf{Deterministic agent core.} Pure functions compute three
 indices in $[0,1]$ --- fatigue, focus, safety --- plus productivity;
 threshold rules turn them into flags; a report writer emits one JSON +
@@ -99,11 +110,10 @@ numbers, and a template fallback takes over when the model is offline.
 (worker, day) pairs plus threshold-split findings (e.g.\ mean defects on
 days above vs.\ below 85~dB), emitted as \texttt{monthly.json} with a
 human-readable insight per correlation.
-\item \textbf{Agentic layer (v2).} A five-role agent team
-(\texttt{shiftlens/agents/}) investigates flagged worker-days and writes
-the monthly narrative through an eight-tool read-only registry; a verifier
-re-computes every numeric claim; every task leaves a trace in
-\texttt{out/traces/} (Section~\ref{sec:agents}).
+\item \textbf{Agentic layer (v2).} A five-role agent team investigates
+flagged worker-days and writes the monthly narrative through a read-only
+tool registry, with every numeric claim verified and every task traced
+(Section~\ref{sec:agents}).
 \item \textbf{Dashboard.} A FastAPI single-page app --- vanilla JS with
 inline SVG charts and no CDN, so it works fully offline --- showing
 correlation scatters with trend lines, team daily units vs.\ fatigue,
@@ -213,14 +223,13 @@ Flag & Rule & What drives it \\
 \textbf{Report and LLM polish.} The daily report
 (\texttt{out/daily\_reports/}$\langle$\textit{date}$\rangle$/%
 $\langle$\textit{worker}$\rangle$\texttt{.json} + \texttt{.md}) bundles the
-metrics, the triggered flags, and a prose summary. The summary
-\emph{always} lists the underlying numbers; the optional LLM (LM Studio,
+metrics, the triggered flags, and a prose summary that always lists the
+underlying numbers. The optional LLM (LM Studio,
 \texttt{SHIFTLENS\_LMS\_HOST} default \url{http://localhost:1234}, model
 \texttt{SHIFTLENS\_LMS\_MODEL} default \texttt{bonsai-27b}) only rephrases
 it, under a prompt that forbids inventing numbers; a template produces the
-same content when the model is unreachable. Every factual claim in a report
-therefore stays traceable to code, while supervisors still get
-natural-language text.
+same content when the model is unreachable. Every factual claim therefore
+stays traceable to code.
 
 \section{The v2 agentic layer: a self-verifying agent team}
 \label{sec:agents}
@@ -236,49 +245,62 @@ or verified against one. With no LLM, the same loop runs on heuristic plans
 and template drafts, so the layer is fully offline-capable.
 
 \textbf{Roster.} Five roles collaborate on each task --- a flagged
-worker-day investigation or the monthly review (Table~\ref{tab:roster}).
+worker-day investigation or the monthly review
+(\texttt{agents/roles.py}): the \emph{orchestrator} runs the loop and
+writes the trace; the \emph{planner} produces an ordered tool-call plan
+(LLM, else flag-driven heuristics); the \emph{investigator} executes the
+calls and collects evidence, no prose; the \emph{drafter} writes prose
+from evidence only --- no numbers absent from evidence; the
+\emph{verifier} is the critic, extracting and recomputing every numeric
+claim.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Agent roster (\texttt{agents/roles.py}).}
-\label{tab:roster}
-\begin{tabular}{@{}lp{12.9cm}@{}}
-\toprule
-Role & Responsibility \\
-\midrule
-orchestrator & runs the loop per task; writes the trace\\
-planner & ordered tool-call plan (LLM, else flag-driven heuristics)\\
-investigator & executes tool calls, collects evidence; no prose\\
-drafter & prose from evidence only; no numbers absent from evidence\\
-verifier & the critic: extracts and recomputes every numeric claim\\
-\bottomrule
-\end{tabular}
-\end{table}
+\textbf{The loop.} For each task the orchestrator runs
+plan $\to$ investigate $\to$ draft $\to$ verify $\to$ publish, with one
+bounded revision (Figure~\ref{fig:loop}); offline, plans are flag-driven
+heuristics (history + team comparison per flag, environment context when a
+threshold crossed, always a recurrence check) and drafts come from
+templates.
 
-\textbf{The loop.} For each task the orchestrator runs:
-\begin{enumerate}
-\item \textbf{plan} --- ordered tool calls (offline: per flag, history +
-team comparison; environment context if a threshold crossed; always a
-recurrence check);
-\item \textbf{investigate} --- execute the calls, gather \texttt{\{tool,
-args, result\}} evidence;
-\item \textbf{draft} --- prose strictly from the evidence;
-\item \textbf{verify} --- recompute every numeric claim against tool data;
-\item \textbf{revise} --- on failure, one more attempt with the mismatch list;
-\item \textbf{publish} --- write the verified text; record the trace.
-\end{enumerate}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  stage/.style={draw=slblue, fill=slblue!8, rounded corners=2pt,
+    minimum height=6.2mm, inner sep=3.6pt, text=slblue!30!black},
+  arr/.style={-{Stealth[length=2mm]}, slblue, thick},
+  lab/.style={font=\scriptsize\itshape, text=slblue!50!black}]
+\node[stage] (plan) {plan};
+\node[stage, right=6.5mm of plan] (inv) {investigate};
+\node[stage, right=6.5mm of inv] (draft) {draft};
+\node[stage, right=6.5mm of draft] (ver) {verify};
+\node[stage, right=6.5mm of ver, fill=slblue!22] (pub) {publish};
+\node[stage, below=6mm of inv, fill=white] (tools)
+  {tool registry: 8 read-only tools};
+\draw[arr] (plan) -- (inv);
+\draw[arr] (inv) -- (draft);
+\draw[arr] (draft) -- (ver);
+\draw[arr] (ver) -- node[lab, above]{pass} (pub);
+\draw[arr, dashed] (ver.south) to[out=-55,in=-125]
+  node[lab, below]{fail: revise ($\le 1$)} (draft.south);
+\draw[arr] (inv) -- (tools);
+\draw[arr, densely dashed] (tools.east) -| (ver.south);
+\end{tikzpicture}
+\caption{One task of the agentic loop. The orchestrator sequences the
+stages; the investigator gathers evidence and the verifier re-computes
+numeric claims, both only through the read-only tool registry. A failed
+verification sends the draft back once; a second failure publishes the
+deterministic template instead.}
+\label{fig:loop}
+\end{figure}
 
 \textbf{Tool registry.} Agents never read files directly; the only data
 channel is \texttt{agents/tools.py}, a registry \texttt{TOOLS = \{name:
-\{fn, schema, description\}\}} of eight read-only tools returning JSON-able
-dicts: \texttt{get\_worker\_day} (raw record + metrics + flags),
-\texttt{get\_worker\_history} (last $n$ days),
-\texttt{compare\_to\_team} (worker vs.\ team mean),
-\texttt{get\_environment\_context} (readings, crossed thresholds such as
-noise $>85$~dB or temperature $>28\,^\circ$C, team deltas),
-\texttt{get\_flag\_rules} (for the planner), \texttt{get\_correlations} and
-\texttt{get\_findings} (monthly outputs), and \texttt{get\_flagged\_days}
-(recurrence check).
+\{fn, schema, description\}\}} of eight read-only tools:
+\texttt{get\_worker\_day} (raw record + metrics + flags),
+\texttt{get\_worker\_history}, \texttt{compare\_to\_team},
+\texttt{get\_environment\_context} (readings, crossed thresholds, team
+deltas), \texttt{get\_flag\_rules}, \texttt{get\_correlations},
+\texttt{get\_findings}, and \texttt{get\_flagged\_days} (recurrence check).
 
 \textbf{The verifier is the trust mechanism.} It extracts every numeric
 claim from a draft (ints, decimals, percents), recomputes each against tool
@@ -293,31 +315,25 @@ offline, where drafts come from templates in the first place.
 per worker-day (e.g.\ \texttt{out/traces/2026-09-01\_W01.json}) and
 \texttt{out/traces/monthly.json} for the monthly review --- with the task,
 plan, evidence, draft, verifier verdict, revision count, published text,
-and whether the LLM was used; \texttt{demo} prints a per-task summary, and
-the tests assert every trace carries plan, evidence, and verdict. Outputs
+and whether the LLM was used. Outputs
 are additive (v1 artifacts unchanged): flagged reports gain an
 \texttt{investigation} block (\texttt{likely\_drivers}, \texttt{evidence},
 \texttt{note}), and \texttt{monthly.json} gains a verified
-\texttt{narrative} and an \texttt{agentic} stats block (traces, verifier
-pass rate, revisions). New CLI verbs: \texttt{agents [--date D]} runs the
-agentic pass alone (errors with a hint if v1 artifacts are missing);
-\texttt{demo} runs it for the first three flagged days, \texttt{demo
---all-agents} for all.
+\texttt{narrative} and an \texttt{agentic} stats block. New CLI verbs:
+\texttt{agents [--date D]} runs the pass alone; \texttt{demo} investigates
+the first three flagged days, \texttt{demo --all-agents} all of them.
 
 \textbf{Why this is agentic, not just an LLM wrapper.} The system plans
 autonomously (an ordered tool-call plan per task), acts through tools
 (structured, schema-described calls --- not prompt stuffing), self-corrects
 (a bounded revision loop driven by an independent critic), and leaves
 inspectable traces for every step. Removing the LLM degrades the prose, not
-the behavior: the heuristic planner, tool executor, verifier and trace
-writer are all deterministic code, so the guarantee --- no unverified
-number is ever published --- holds with the model offline.
+the behavior --- the guarantee holds with the model offline.
 
 \section{Monthly analytics}
 The monthly pass aggregates the 240 worker-day records into
-\texttt{out/monthly.json}: a team daily series (units, defects, average
-fatigue, noise), per-worker aggregates (total units, defect rate, average
-fatigue/focus/safety), correlations, and findings. Correlations are
+\texttt{out/monthly.json} (team daily series, per-worker aggregates,
+correlations, findings). Correlations are
 Pearson's $r$ over all (worker, day) pairs ($n = 240$), computed with the
 standard library only:
 \[
@@ -341,19 +357,71 @@ temperature$\leftrightarrow$PPE at $r = -0.76$,
 phone$\leftrightarrow$units at $r = -0.50$, mood$\leftrightarrow$units at
 $r = +0.45$, and focus$\leftrightarrow$units at $r = +0.52$ (all
 $n = 240$); the top finding reads \emph{``Days above 85~dB average 122\%
-more defects per worker than quieter days (5.8 vs 2.6)''}. The v2 agentic
+more defects per worker than quieter days (5.8 vs 2.6)''}.
+Figure~\ref{fig:monthly} visualises both. The v2 agentic
 pass then adds the monthly \texttt{narrative}: planned, investigated,
 drafted, and verified like any other task.
 
+\begin{figure}[htbp]
+\centering
+\begin{minipage}[t]{0.54\textwidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=4.7cm,
+  xlabel={self-reported fatigue (1--5)},
+  ylabel={units produced},
+  xmin=0.55, xmax=5.45, ymin=60, ymax=200,
+  xtick={1,2,3,4,5},
+  tick label style={font=\scriptsize},
+  label style={font=\footnotesize},
+  axis lines=left,
+  axis line style={slblue!55!black},
+]
+\addplot[only marks, mark=*, mark size=0.7pt, slblue, opacity=0.55]
+coordinates {
+(3,145) (3,102) (1,134) (2,131) (3,132) (3,145) (1,176) (2,137) (3,116) (4,100) (2,127) (3,122) (1,175) (4,125) (4,125) (4,117) (3,148) (3,94) (3,121) (2,124) (2,150) (4,130) (3,146) (3,105) (3,131) (3,101) (2,119) (3,121) (4,133) (4,117) (1,169) (1,130) (3,144) (4,96) (3,126) (3,115) (1,168) (2,154) (1,169) (3,115) (1,174) (5,91) (3,118) (3,115) (2,151) (2,154) (2,157) (2,128) (3,134) (5,84) (3,113) (3,124) (4,120) (1,175) (5,118) (3,117) (2,157) (4,89) (4,98) (4,108) (3,137) (2,160) (1,167) (3,99) (3,133) (3,104) (3,129) (1,139) (3,149) (3,139) (4,149) (3,110) (3,131) (2,106) (2,136) (3,129) (3,142) (1,160) (2,163) (3,112) (3,131) (3,109) (4,120) (2,130) (3,134) (3,123) (4,139) (5,97) (2,143) (2,106) (4,107) (2,126) (2,151) (3,127) (3,150) (3,106) (1,163) (3,109) (2,134) (3,122) (4,131) (4,135) (1,185) (3,116) (3,144) (3,108) (4,116) (3,118) (4,139) (2,175) (3,156) (3,106) (2,162) (3,103) (2,127) (2,137) (2,160) (2,149) (3,152) (3,116) (3,142) (2,121) (2,121) (1,144) (3,139) (5,111) (1,169) (1,134) (3,143) (3,116) (2,136) (4,111) (3,141) (3,136) (1,184) (5,87) (3,134) (3,105) (2,136) (4,113) (3,150) (3,142) (2,163) (3,112) (2,161) (1,139) (3,115) (4,101) (2,154) (3,143) (3,152) (4,99) (3,139) (2,125) (1,152) (1,138) (4,131) (2,163) (3,159) (2,126) (2,142) (2,124) (2,131) (1,146) (4,122) (2,145) (2,163) (3,114) (3,145) (4,106) (2,125) (3,107) (3,138) (2,168) (2,153) (3,115) (3,136) (2,133) (3,110) (1,140) (3,139) (4,133) (2,157) (1,123) (1,148) (3,100) (2,119) (2,130) (3,134) (2,158) (2,148) (1,140) (1,171) (4,94) (1,146) (3,111) (2,153) (3,135) (3,160) (2,127) (3,141) (3,112) (2,128) (4,105) (2,154) (3,137) (3,142) (4,101) (5,119) (4,98) (2,126) (4,113) (2,161) (4,123) (3,152) (2,126) (5,123) (4,100) (3,117) (3,109) (3,141) (3,150) (4,133) (3,121) (3,130) (2,124) (2,137) (2,122) (2,150) (2,144) (2,146) (4,116) (3,143) (2,123) (2,144) (2,129) (2,171) (4,119) (3,157) (2,123)
+};
+\addplot[slorange, very thick, dashed, domain=1:5] {-12.92*x + 166.98};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.40\textwidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.96\linewidth, height=4.7cm,
+  ybar, bar width=10mm,
+  symbolic x coords={quiet,noisy},
+  xtick=data,
+  xticklabels={$\le 85$ dB, $> 85$ dB},
+  ymin=0, ymax=7.2,
+  ylabel={mean defects / worker},
+  tick label style={font=\scriptsize},
+  label style={font=\footnotesize},
+  axis lines=left,
+  axis line style={slblue!55!black},
+  nodes near coords,
+  nodes near coords style={font=\scriptsize},
+]
+\addplot[fill=slblue!35, draw=slblue] coordinates {(quiet,2.6) (noisy,5.8)};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}
+\caption{Left: self-reported fatigue vs.\ units produced for all 240
+worker-days; the dashed line is the least-squares fit ($r = -0.61$).
+Right: the top finding, computed by threshold split --- days above 85~dB
+average 122\% more defects per worker than quieter days (5.8 vs.\ 2.6).}
+\label{fig:monthly}
+\end{figure}
+
 \section{Evaluation and discussion}
 \textbf{Validation.} An end-to-end smoke test runs the demo pipeline into a
-temporary data directory and asserts that \texttt{monthly.json} contains
-the seven correlations with $|r|>0$ for the planted signals, that daily
-reports exist for every worker, and that the dashboard module imports. The
-v2 assertions cover the agentic layer: traces exist for investigated days;
-every trace carries plan, evidence, and verdict; the monthly
-\texttt{narrative} is non-empty; and the verifier pass rate is at least
-$0.5$ --- template fallbacks offline are part of the design, not a failure.
+temporary data directory and asserts the seven correlations carry $|r|>0$
+on the planted signals, daily reports exist for every worker, and the
+dashboard module imports; v2 adds agentic asserts (traces carry plan,
+evidence and verdict; narrative non-empty; verifier pass rate $\ge 0.5$
+--- offline template fallbacks are design, not failure).
 More importantly, the simulator's planted causal structure provides real ground
 truth: the analytics are judged by whether they rediscover the
 noise--defect, fatigue--units, temperature--PPE, and phone--units effects,
@@ -361,11 +429,11 @@ in the right direction, with none of them hardcoded.
 
 \textbf{What the dashboard reveals.} On one page a supervisor sees which
 conditions correlate with output and defects (scatter plots with trend
-lines), how team units and average fatigue move together across the month,
-per-worker bars, finding cards in plain language, and a browser that drills
-into any worker's daily report. The intent is to move the conversation from
-end-of-month surprise to same-week action: fix the noisy line, rotate
-fatigued workers, double down on PPE compliance on hot days.
+lines, cf.\ Figure~\ref{fig:monthly}), how team units and average fatigue
+move together, per-worker bars, finding cards, and a drill-down into any
+daily report. The intent: move the conversation from end-of-month surprise
+to same-week action --- fix the noisy line, rotate fatigued workers,
+enforce PPE compliance on hot days.
 
 \textbf{Limitations.} The demo runs on simulated data; $30$ days $\times$
 $8$ workers is a small sample for correlation; Pearson's $r$ captures only
@@ -373,26 +441,19 @@ linear association, and the correlations are observational, not causal; the
 three indices are heuristic composites with hand-set weights; per-worker
 normalization hides absolute differences between workers.
 
-\textbf{Privacy and ethics.} The monthly layer is aggregate-first:
+\textbf{Privacy and ethics.} The monthly layer is aggregate-first ---
 management-facing analytics default to team-level findings. Wearable and
-survey data require worker consent, and daily reports are a coaching and
-self-knowledge tool --- explicitly not an input to disciplinary action. All
-processing is local; no data leaves the machine, and the dashboard works
-fully offline.
+survey data require worker consent; daily reports are a coaching and
+self-knowledge tool, explicitly not an input to disciplinary action. All
+processing is local: no data leaves the machine.
 
 \section{Conclusion}
 ShiftLens shows that a useful agentic system does not need an LLM in the
-decision path. A deterministic core turns fragmented daily streams into
-interpretable per-worker reports; a monthly analytics layer reconnects
-wellbeing and working conditions to output and quality; and a five-role
-agent team investigates the \emph{why} --- planning tool calls, gathering
-evidence, drafting prose --- while a verifier agent guarantees that no
-unverified number is ever published. An optional local LLM adds fluent
-prose without ever inventing a fact, and the whole system, agents included,
-runs offline. Validated against planted ground truth, the pipeline recovers
-the effects it should --- and every number on the dashboard is traceable to
-code and every agent decision to a trace on disk. Next steps are real
-sensor connectors, longer observation windows, and richer (still auditable)
-models beyond linear correlation.
+decision path: a deterministic core writes the numbers, a five-role agent
+team investigates the \emph{why} through tools, and a verifier guarantees
+that no unverified number is ever published --- online or offline.
+Validated against planted ground truth, every number is traceable to code
+and every agent decision to a trace on disk. Next steps: real sensor
+connectors, longer observation windows, richer (still auditable) models.
 
 \end{document}
