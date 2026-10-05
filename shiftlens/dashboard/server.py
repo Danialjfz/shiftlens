@@ -209,20 +209,35 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 header.top {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 16px 28px; border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, #0d1420 0%, var(--bg) 100%);
   position: sticky; top: 0; z-index: 5;
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand h1 { font-size: 19px; font-weight: 650; letter-spacing: .2px; }
-.brand h1 span { color: var(--accent); }
-.brand .tag { color: var(--muted); font-size: 12.5px; margin-top: 1px; }
-.pill {
-  background: var(--chip); border: 1px solid var(--border); color: var(--muted);
-  border-radius: 999px; padding: 5px 14px; font-size: 12.5px; white-space: nowrap;
+.top-inner {
+  max-width: 1240px; margin: 0 auto; padding: 13px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
 }
-.pill b { color: var(--text); font-weight: 600; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand h1 { font-size: 20px; font-weight: 650; letter-spacing: .2px; line-height: 1.15; }
+.brand h1 span { color: var(--accent); }
+.brand .tag { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.top-meta { display: flex; align-items: center; gap: 20px; flex: none; }
+.mitem { text-align: right; }
+.mitem .m-label { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
+.mitem b { font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.status {
+  display: flex; align-items: center; gap: 7px; color: var(--muted);
+  font-size: 12px; white-space: nowrap;
+  border-left: 1px solid var(--border); padding-left: 20px;
+}
+.status .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--teal); box-shadow: 0 0 7px var(--teal);
+}
+@media (max-width: 900px) {
+  .mitem.opt { display: none; }
+  .brand .tag { display: none; }
+}
 main { max-width: 1240px; margin: 0 auto; padding: 22px 24px 60px; }
 #banner {
   display: none; background: #2a1a12; border: 1px solid #5a3a1a; color: #f5c98a;
@@ -292,18 +307,25 @@ footer { color: #54687c; font-size: 11.5px; text-align: center; margin-top: 28px
 </head>
 <body>
 <header class="top">
-  <div class="brand">
-    <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <circle cx="14" cy="14" r="9" stroke="#4fa3ff" stroke-width="2.5"/>
-      <line x1="20.5" y1="20.5" x2="28" y2="28" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round"/>
-      <polyline points="8,16 11.5,11 14.5,14 19,8" stroke="#dbe4ee" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <div>
-      <h1>Shift<span>Lens</span></h1>
-      <div class="tag">Agentic workforce analytics — wellbeing &times; productivity</div>
+  <div class="top-inner">
+    <div class="brand">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="14" cy="14" r="9" stroke="#4fa3ff" stroke-width="2.5"/>
+        <line x1="20.5" y1="20.5" x2="28" y2="28" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round"/>
+        <polyline points="8,16 11.5,11 14.5,14 19,8" stroke="#dbe4ee" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <h1>Shift<span>Lens</span></h1>
+        <div class="tag">Agentic workforce analytics — wellbeing &times; productivity</div>
+      </div>
+    </div>
+    <div class="top-meta">
+      <div class="mitem"><span class="m-label">Period</span><b id="period">—</b></div>
+      <div class="mitem opt"><span class="m-label">Worker-days</span><b id="hdDays">—</b></div>
+      <div class="mitem opt"><span class="m-label">Verifier pass</span><b id="hdVerifier">—</b></div>
+      <div class="status"><span class="dot"></span>local &middot; offline</div>
     </div>
   </div>
-  <div class="pill">Period&nbsp;<b id="period">—</b></div>
 </header>
 <main>
   <div id="banner"></div>
@@ -681,6 +703,9 @@ async function boot() {
     state.monthly = m;
     m.workers.forEach(w => { state.names[w.worker_id] = w.name; });
     $("period").textContent = m.period;
+    $("hdDays").textContent = m.correlations.length ? m.correlations[0].n : "—";
+    $("hdVerifier").textContent = (m.agentic && typeof m.agentic.verifier_pass_rate === "number")
+      ? Math.round(m.agentic.verifier_pass_rate * 100) + "%" : "—";
     renderKPIs(m);
     $("corrSelect").innerHTML = m.correlations.map((c, i) =>
       '<option value="' + i + '">' + esc(c.x + " \u2194 " + c.y) + "</option>").join("");
