@@ -1,4 +1,4 @@
-# ShiftLens — Design Contract (v1)
+# ShiftLens — Design Contract (v2)
 
 **One line:** An agentic workforce-analytics system: every day it ingests each
 worker's sensor streams, micro-survey answers, and object-detection events,
@@ -21,6 +21,8 @@ ShiftLens/
     __init__.py
     sensors/__init__.py  sensors/simulate.py
     agent/__init__.py    agent/metrics.py  agent/report.py  agent/llm.py
+    agents/__init__.py   agents/roles.py  agents/tools.py  agents/orchestrator.py
+                         agents/verifier.py
     analytics/__init__.py analytics/monthly.py
     dashboard/__init__.py dashboard/server.py
     cli.py
@@ -139,3 +141,79 @@ print findings summary)
 End-to-end: run demo pipeline into a tmp data dir, assert monthly.json has 7
 correlations with |r|>0 for the planted signals, daily reports exist for all
 workers, dashboard module imports.
+
+---
+
+# Agentic layer (v2) — agents/ package
+
+The v1 pipeline answers "what happened". The v2 agentic layer answers "why —
+and are we sure?". A team of role agents works over the same deterministic
+data through an explicit tool registry, with a verifier agent that re-checks
+every numeric claim before anything is published. **The LLM still never
+decides**: planning/drafting may use the LLM, but every number that reaches
+output is either computed by a tool or verified against one. Fully offline:
+with no LLM the same loop runs on heuristic plans and template drafts.
+
+## Roster (agents/roles.py)
+
+- **orchestrator** — runs the loop per task: plan → investigate (tool calls)
+  → draft → verify → (revise once if rejected) → publish. Writes the trace.
+- **planner** — given a task (a flagged worker-day, or the monthly review),
+  emits an investigation plan: an ordered list of tool calls. LLM if
+  available, else a deterministic heuristic plan (flag-driven rules below).
+- **investigator** — executes tool calls, collects evidence items
+  `{tool, args, result}` — pure executor, no prose.
+- **drafter** — writes prose (investigation note / monthly narrative) from
+  evidence only; prompt forbids numbers not present in the evidence.
+- **verifier** — the critic. Extracts every numeric claim from the draft
+  (regex for ints/decimals/percents), recomputes each against tool data,
+  returns `{verdict: pass|fail, mismatches: [...]}`. On fail the orchestrator
+  sends the draft back once with the mismatch list; if the revision still
+  fails, the deterministic template text is used instead (trace records this).
+
+## Tool registry (agents/tools.py)
+
+`TOOLS = {name: {"fn": callable, "schema": str, "description": str}}` —
+the only way agents read data. All read-only, all return JSON-able dicts:
+
+- `get_worker_day(date, worker_id)` → raw record + computed metrics + flags
+- `get_worker_history(worker_id, last_n=7)` → per-day metrics/units/defects
+- `compare_to_team(date, metric)` → worker value vs team mean that day
+- `get_environment_context(date)` → env readings + which thresholds crossed
+  (noise>85, temp>28) + team defect/ppE deltas on those days
+- `get_flag_rules()` → the deterministic flag rules (for the planner)
+- `get_correlations()` / `get_findings()` → monthly analytics outputs
+- `get_flagged_days(worker_id)` → all dates where the worker had any flag
+
+Heuristic plan rules (offline planner): for each flag on the day, append
+`get_worker_history(wid,7)` + `compare_to_team(date,<flag-relevant metric>)`;
+if any env threshold crossed that day append `get_environment_context(date)`;
+always end with `get_flagged_days(wid)` (recurrence check).
+
+## Outputs (additive — v1 artifacts unchanged)
+
+- Flagged daily reports gain an `"investigation"` block in the JSON + a
+  markdown section: `{likely_drivers: [...], evidence: [...], note: str}`.
+- `monthly.json` gains `"narrative"` (editor-written month review, verified)
+  and `"agentic": {"traces": n, "verifier_pass_rate": x, "revisions": n}`.
+- Traces: `out/traces/<date>_<WID>.json` per investigated worker-day and
+  `out/traces/monthly.json`: `{task, plan: [tool calls], evidence: [...],
+  draft, verifier: {...}, revisions: int, published: str, llm_used: bool}`.
+  Traces are the judge-facing proof of agent behavior — never silently
+  swallowed; `demo` prints a compact per-task trace summary to the terminal.
+
+## CLI additions (cli.py)
+
+- `agents [--date D]` — run the agentic pass only (investigations for all
+  flagged worker-days on D/all dates + monthly narrative). Requires v1
+  artifacts to exist; error with hint otherwise.
+- `demo` — after monthly, automatically runs the agentic pass for the FIRST
+  3 flagged worker-days (keeps demo fast) + the monthly narrative, printing
+  trace summaries; `demo --all-agents` investigates every flagged day.
+
+## tests (extend tests/test_smoke.py)
+
+Additionally assert: traces exist for investigated days; every trace has
+plan+evidence+verdict; `monthly.json` has a non-empty `narrative`;
+verifier pass rate ≥ 0.5 (some drafts may legitimately need the template
+fallback offline — that's part of the story, not a failure).

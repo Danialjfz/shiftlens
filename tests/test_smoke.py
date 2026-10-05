@@ -7,6 +7,17 @@ SHIFTLENS_DATA_DIR / SHIFTLENS_OUT_DIR pointed at a temp dir, then asserts:
   * planted signals show: fatigue-units r < -0.3 (plus noise/temp/phone)
   * daily reports exist for all 8 workers on day 1 (json + md)
   * summaries list the real numbers; simulation is byte-deterministic
+  * v2 agentic layer: traces exist for the investigated days (plan +
+    evidence + verifier verdict each), investigated reports gain an
+    "investigation" block, monthly.json gains a non-empty "narrative" and
+    an "agentic" summary with verifier pass rate >= 0.5, and the standalone
+    `agents --date D` command runs on the existing artifacts
+  * the verifier is a real critic: invented numbers fail, evidence-backed
+    numbers pass
+
+The LLM is pointed at a dead port by default (SHIFTLENS_LMS_HOST) so the
+test exercises the offline heuristic/template path deterministically; set
+SHIFTLENS_LMS_HOST yourself to test against a live LM Studio.
 
 Works under pytest, or as a plain script:  python tests/test_smoke.py
 """
@@ -26,6 +37,9 @@ def _run_cli(tmp: Path, *argv: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["SHIFTLENS_DATA_DIR"] = str(tmp / "data")
     env["SHIFTLENS_OUT_DIR"] = str(tmp / "out")
+    # hermetic: force the offline path unless the caller configured an LLM
+    env.setdefault("SHIFTLENS_LMS_HOST", "http://127.0.0.1:9")
+    env.setdefault("SHIFTLENS_LMS_TIMEOUT", "5")
     proc = subprocess.run(
         [sys.executable, "-m", "shiftlens.cli", *argv],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=300,
@@ -110,9 +124,104 @@ def test_demo_pipeline():
                     == (tmp2 / "data" / name).read_bytes()), name
 
 
+def test_verifier_critic():
+    """The verifier really checks numeric claims against tool data."""
+    sys.path.insert(0, str(REPO))
+    from shiftlens.agents import verifier
+
+    evidence = [
+        {"tool": "get_worker_day",
+         "args": {"date": "2026-09-01", "worker_id": "W01"},
+         "result": {"date": "2026-09-01", "worker_id": "W01",
+                    "metrics": {"units": 142, "defects": 2,
+                                "fatigue_index": 0.643}}},
+    ]
+    ok = verifier.verify(
+        "On 2026-09-01, W01 produced 142 units with a fatigue index of 0.64.",
+        evidence)
+    assert ok["verdict"] == "pass", ok  # 0.64 is evidence 0.643 rounded
+    bad = verifier.verify("W01 produced 999 units.", evidence)
+    assert bad["verdict"] == "fail", bad
+    assert bad["mismatches"] and bad["mismatches"][0]["claim"] == "999"
+    # digits glued to letters (W01) are not claims; the date contributes
+    # 2026/-09/-01, plus 142 and 0.64 -> 5 distinct claims
+    assert ok["claims"] == 5, ok
+    empty = verifier.verify("No numeric claims here.", evidence)
+    assert empty["verdict"] == "pass" and empty["claims"] == 0
+
+
+def test_agentic_layer():
+    """v2 agentic layer: traces, investigation blocks, monthly narrative."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        proc = _run_cli(tmp, "demo")
+        assert "Agentic pass" in proc.stdout
+        out = tmp / "out"
+
+        # --- traces exist for investigated days (+ monthly.json trace) ---
+        traces_dir = out / "traces"
+        trace_files = sorted(traces_dir.glob("*.json"))
+        assert len(trace_files) >= 4, (
+            f"expected >= 4 traces (3 investigations + monthly), "
+            f"got {len(trace_files)}")
+        assert (traces_dir / "monthly.json").exists()
+
+        # --- every trace has plan + evidence + verdict ---
+        for tp in trace_files:
+            tr = json.loads(tp.read_text())
+            assert {"task", "plan", "evidence", "draft", "verifier",
+                    "revisions", "published", "llm_used"} <= set(tr), tp.name
+            assert tr["plan"], tp.name
+            assert tr["evidence"], tp.name
+            assert all({"tool", "args"} <= set(e) for e in tr["evidence"])
+            assert tr["verifier"]["verdict"] in ("pass", "fail"), tp.name
+            assert isinstance(tr["revisions"], int)
+            assert tr["published"].strip()
+
+        # --- monthly.json gains narrative + agentic (v1 fields intact) ---
+        monthly = json.loads((out / "monthly.json").read_text())
+        assert len(monthly["correlations"]) == 7  # v1 untouched
+        assert monthly["narrative"].strip()
+        ag = monthly["agentic"]
+        assert ag["traces"] == len(trace_files)
+        assert ag["verifier_pass_rate"] >= 0.5, ag
+        assert ag["revisions"] >= 0
+
+        # --- investigated reports gain the investigation block (json+md) ---
+        investigated = []
+        for p in sorted((out / "daily_reports").glob("*/*.json")):
+            rep = json.loads(p.read_text())
+            if "investigation" not in rep:
+                continue
+            blk = rep["investigation"]
+            assert {"likely_drivers", "evidence", "note"} <= set(blk), p
+            assert blk["note"].strip() and blk["likely_drivers"], p
+            # v1 fields untouched
+            assert {"worker_id", "date", "metrics", "flags",
+                    "summary"} <= set(rep), p
+            assert "## Investigation" in p.with_suffix(".md").read_text(), p
+            investigated.append(p)
+        assert len(investigated) >= 3, (
+            f"expected >= 3 investigated reports, got {len(investigated)}")
+
+        # --- standalone agentic pass on existing artifacts ---
+        proc2 = _run_cli(tmp, "agents", "--date", "2026-09-01")
+        assert "Agentic pass" in proc2.stdout
+        monthly2 = json.loads((out / "monthly.json").read_text())
+        assert monthly2["narrative"].strip()
+        # agentic summary reflects all traces currently on disk
+        assert monthly2["agentic"]["traces"] == len(
+            list(traces_dir.glob("*.json")))
+        assert monthly2["agentic"]["verifier_pass_rate"] >= 0.5
+
+
 if __name__ == "__main__":
     test_metric_formulas()
     print("ok - metric formulas")
     test_demo_pipeline()
     print("ok - demo pipeline (30 days, 8 workers, 7 correlations, reports)")
+    test_verifier_critic()
+    print("ok - verifier critic (numeric claims re-checked vs tool data)")
+    test_agentic_layer()
+    print("ok - agentic layer (traces, investigations, monthly narrative)")
     print("SMOKE TEST PASSED")

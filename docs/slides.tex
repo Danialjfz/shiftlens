@@ -52,7 +52,8 @@
     served as an offline single-page dashboard (FastAPI, port 8200)
   \end{center}
   One command runs the pipeline: \texttt{demo} = simulate $\rightarrow$ report
-  $\rightarrow$ monthly; \texttt{serve} starts the dashboard.
+  $\rightarrow$ monthly $\rightarrow$ agentic pass; \texttt{serve} starts the
+  dashboard.
 \end{frame}
 
 % ---------- Slide 4: What we collect ----------
@@ -77,28 +78,35 @@
   reproducible, with causal structure planted for the analytics to rediscover.
 \end{frame}
 
-% ---------- Slide 5: The agent ----------
-\begin{frame}{The agent: deterministic core, LLM at the edges}
-  \begin{block}{Metrics --- pure functions of the day record}
-    \small
-    \begin{align*}
-      \text{fatigue\_index} &= 0.6\cdot\tfrac{\text{fatigue}}{5} \;+\; 0.4\cdot\tfrac{\min(\text{hr\_avg}/100,\;1.2)}{1.2}\\[2pt]
-      \text{focus\_score} &= \operatorname{clamp}\bigl(1 - 0.08\cdot\text{phone\_events} - 0.03\cdot\text{idle\_events},\; 0,\; 1\bigr)\\[2pt]
-      \text{safety\_score} &= \operatorname{clamp}\bigl(\text{ppe\_ok\_pct}/100 - 0.25\cdot\text{safety\_zone\_violations},\; 0,\; 1\bigr)\\[2pt]
-      \text{productivity} &= \text{units, normalized per worker vs.\ their own 30-day mean}
-    \end{align*}
+% ---------- Slide 5: The multi-agent loop ----------
+\begin{frame}{The multi-agent loop}
+  \begin{columns}[T]
+    \column{0.47\textwidth}
+    \textbf{Roster} (\texttt{agents/} package):
+    \begin{itemize}
+      \item \textbf{orchestrator} --- runs the loop + trace
+      \item \textbf{planner} --- the plan: ordered tool calls
+      \item \textbf{investigator} --- tool calls $\rightarrow$ evidence
+      \item \textbf{drafter} --- writes from evidence only
+      \item \textbf{verifier} --- recomputes every number
+    \end{itemize}
+    \column{0.51\textwidth}
+    \textbf{The loop} (per flagged day / monthly review):
+    \begin{enumerate}
+      \item \textbf{plan} --- task $\rightarrow$ ordered tool calls
+      \item \textbf{investigate} --- run 8 read-only tools
+      \item \textbf{draft} --- note from evidence only
+      \item \textbf{verify} --- recompute every number
+      \item \textbf{revise} --- once, with mismatch list
+      \item \textbf{publish} --- full trace in \texttt{out/traces/}
+    \end{enumerate}
+  \end{columns}
+  \begin{block}{Verifier = trust}
+    \small Every numeric claim in a draft is extracted and re-computed against
+    tool data --- no unverified number is ever published. Offline, the same
+    loop runs on heuristic plans and template drafts: \textbf{the LLM phrases;
+    it never decides}.
   \end{block}
-  \begin{block}{Flags --- fixed thresholds, no judgement calls}
-    \small
-    \texttt{high\_fatigue}: fatigue\_index $\geq 0.6$ \quad
-    \texttt{low\_focus}: focus\_score $< 0.7$ \quad
-    \texttt{safety\_risk}: safety\_score $< 0.85$ \quad
-    \texttt{defect\_spike}: defects $\geq 2\times$ worker mean
-  \end{block}
-  \textbf{The LLM phrases; it never decides.} An optional local model (LM
-  Studio, OpenAI-compatible) only rewrites the report's prose summary --- the
-  prompt forbids inventing numbers, and a template takes over when the model
-  is offline.
 \end{frame}
 
 % ---------- Slide 6: A daily report ----------
@@ -195,14 +203,17 @@ out/daily_reports/2026-09-01/W01.json
   \begin{itemize}
     \item \textbf{Deterministic core.} Every metric, flag, correlation and
           finding is a pure Python function --- auditable and reproducible.
+    \item \textbf{Self-verifying agents.} The verifier extracts every numeric
+          claim from each agent draft and re-computes it against tool data;
+          failed drafts are revised once, then fall back to the deterministic
+          template --- and every task leaves an auditable trace in
+          \texttt{out/traces/}.
     \item \textbf{The LLM phrases; it never decides.} An optional local LM
           Studio model rewrites prose only; the prompt forbids inventing
           numbers; a template fallback keeps everything working offline.
-    \item \textbf{Aggregate-first analytics.} Monthly correlations run over
-          all 240 worker-days; findings are team-level threshold splits.
-    \item \textbf{Consent \& ethics.} Survey answers are self-reported; deploy
-          with informed consent --- every number on screen traces back to a
-          published formula and the raw day record.
+    \item \textbf{Aggregate-first, consent-based.} Monthly correlations run
+          over all 240 worker-days as team-level findings; surveys are
+          self-reported and deployed with informed consent.
     \item \textbf{Offline-capable.} Only \texttt{fastapi} + \texttt{uvicorn},
           a no-CDN dashboard and a local LLM --- data never has to leave the site.
   \end{itemize}
@@ -221,7 +232,9 @@ out/daily_reports/2026-09-01/W01.json
   \begin{block}{Try it}
     \texttt{../.venv/bin/python -m shiftlens.cli demo} \quad then \quad
     \texttt{../.venv/bin/python -m shiftlens.cli serve}
-    $\rightarrow$ \texttt{http://localhost:8200}
+    $\rightarrow$ \texttt{http://localhost:8200}\\[3pt]
+    \texttt{... agents --date 2026-09-01} --- just the agent team; traces in
+    \texttt{out/traces/}
   \end{block}
   \centering\emph{every shift tells a story; we connect it to the numbers.}
 \end{frame}
