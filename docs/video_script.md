@@ -1,62 +1,202 @@
-# ShiftLens — Demo Video Script
+# ShiftLens — Demo Video Script (full production script)
 
-**Format:** screen recording + voiceover · **Length:** ~90 s (plus a 30 s cut-down below)
-**Prereqs:** project implemented; all commands run from `ShiftLens/` with the shared
-venv (`../.venv/bin/python -m shiftlens.cli <cmd>`). LM Studio is optional — the demo
-works with the LLM offline (template prose, heuristic plans). `demo` ends with the
-agentic pass (first 3 flagged worker-days + the monthly narrative) and prints per-task
-trace summaries; traces land in `out/traces/`.
+**Format:** screen recording + voiceover · **Length:** 90 seconds (30 s cut-down at the end)
+**Recording:** English narration (matches report + deck). Read the **SAY** blocks
+verbatim — every number in them matches the seeded run you will see on screen.
 
-## Shot list — 90-second cut
+---
 
-| # | Time | On screen (exact actions) | Narration (voiceover) |
-|---|------|---------------------------|------------------------|
-| 1 | 0:00–0:06 | Clean terminal, prompt sitting at `ShiftLens/`. Nothing typed yet. | "ShiftLens is an agentic workforce-analytics system. Every shift tells a story — we connect it to the numbers." |
-| 2 | 0:06–0:19 | Type `../.venv/bin/python -m shiftlens.cli demo`, press Enter. Let it run: it simulates 30 days × 8 workers, writes daily reports, computes monthly analytics, prints the findings summary. Leave the printed findings on screen. | "One command: simulate a month for eight workers — sensors, micro-surveys, vision events — write a daily report for every worker, then correlate the whole month and print the findings." |
-| 3 | 0:19–0:29 | Scroll up to the tail of the `demo` output: the per-task trace summaries from the agentic pass (task, tool calls, verifier verdict). Then `head -c 1500 out/traces/2026-09-01_W01.json` — slow scroll past the plan, the evidence, and the verifier block. | "Then the agent team investigates the flagged days — plan, gather evidence through tools, draft — and a verifier re-computes every number before anything is published. Every step is traced." |
-| 4 | 0:29–0:41 | `cat out/daily_reports/2026-09-01/W01.md` — slow scroll through the metrics table (fatigue_index 0.64, focus_score 0.83, safety_score 0.98, units 145, defects 4), the flag, and the prose summary. | "Here's one worker's day. Fatigue, focus and safety are fixed formulas; the flags come from fixed thresholds — Aria's fatigue index crossed 0.6, so the report flags high fatigue. The only thing an LLM writes is this prose — and if the model is offline, a template says the same numbers." |
-| 5 | 0:41–0:48 | `../.venv/bin/python -m shiftlens.cli serve` — note the printed port. Switch to the browser at `http://localhost:8200`. | "The dashboard serves on port 8200 — vanilla JavaScript, no CDN, so it runs on a closed network." |
-| 6 | 0:48–0:59 | Scroll to the correlation scatter with trend line (fatigue ↔ units). Hover a few points, then rest the cursor on the trend line. | "Two hundred forty worker-days. Fatigue against output: r around minus 0.6 — higher fatigue strongly tracks lower output. It's plain Pearson correlation from the standard library." |
-| 7 | 0:59–1:08 | Scroll to the team daily line chart (units vs fatigue). Trace one day where the two lines pull apart. | "Day by day, the team timeline shows output dipping where fatigue climbs." |
-| 8 | 1:08–1:17 | Scroll to the findings cards, then the per-worker bar chart. Read the top finding aloud from the screen (seeded demo: "Days above 85 dB average 122% more defects per worker than quieter days"). | "Findings are threshold splits computed from the data — never hardcoded. Days above 85 decibels average a hundred and twenty-two percent more defects per worker." |
-| 9 | 1:17–1:24 | Report browser: pick date `2026-09-01` → pick worker `W01 — Aria Kim` → the rendered markdown report appears. | "And every day's report is browsable — pick a date, pick a worker, read the day." |
-| 10 | 1:24–1:30 | Scroll back to the top of the dashboard; hold on the findings cards. | "ShiftLens. Every shift tells a story — we connect it to the numbers." |
+## 0. Pre-flight (do this BEFORE recording)
 
-## 30-second cut-down
+```bash
+cd ~/Documents/Projects/Mahan/ShiftLens
+../.venv/bin/python -m shiftlens.cli demo            # generates data/, out/, out/traces/
+export PS1='$ '                                       # clean prompt
+clear
+```
 
-| # | Time | On screen | Narration |
-|---|------|-----------|-----------|
-| 1 | 0:00–0:04 | Terminal at `ShiftLens/`. | "ShiftLens — every shift tells a story; we connect it to the numbers." |
-| 2 | 0:04–0:11 | `../.venv/bin/python -m shiftlens.cli demo` runs; findings print, then the agentic trace summaries. | "One command ingests a month for eight workers, writes a daily report per worker, and correlates the month — then a multi-agent team investigates the flagged days, with self-verification." |
-| 3 | 0:11–0:18 | `cat out/daily_reports/2026-09-01/W01.md` — one slow scroll; flash `head -c 800 out/traces/2026-09-01_W01.json` at the end. | "Deterministic metrics, threshold flags — every number an agent writes is re-computed by a verifier. The LLM only phrases. It never decides." |
-| 4 | 0:18–0:25 | `serve`, then the dashboard: correlation scatter with trend line, then the findings cards. | "On the dashboard: fatigue versus output across 240 worker-days, and findings computed from the data — never hardcoded." |
-| 5 | 0:25–0:30 | Hold on the findings cards. | "ShiftLens. Works offline, explains itself, and tells you why the month looked the way it did." |
+- Terminal font 18–20 pt, full screen. Browser zoomed 125–150 %, bookmarks bar
+  hidden. Pre-position both windows; record at 1920×1080.
+- Paste commands (or ↑ from history) — never type live.
+- `demo` investigates the first 3 flagged worker-days + the monthly review, so
+  traces exist. If you want all 166 traces for cutaways: `demo --all-agents`.
+- If LM Studio is not running, everything still works — that's scripted in
+  (Scene 4). Traces will show `"llm_used": false`; don't hide it, it's a feature.
+
+---
+
+## THE 90-SECOND CUT
+
+### Scene 1 — Hook (0:00–0:06)
+
+**SCREEN:** Clean terminal, prompt at `ShiftLens/`. Nothing typed.
+
+**SAY:**
+> "ShiftLens is an agentic workforce-analytics system. Every shift tells a
+> story — and we connect it to the numbers."
+
+---
+
+### Scene 2 — One command (0:06–0:19)
+
+**SCREEN:** Paste and run:
+
+```bash
+../.venv/bin/python -m shiftlens.cli demo
+```
+
+Let it run. It simulates 30 days × 8 workers, writes 240 daily reports, computes
+the monthly analytics, and prints the findings. Leave the findings on screen.
+
+**SAY:**
+> "One command: simulate a month for eight workers — wearable sensors,
+> micro-surveys, and vision events — write a daily report for every worker,
+> then correlate the whole month and print what matters."
+
+---
+
+### Scene 3 — The agent team (0:19–0:30)
+
+**SCREEN:** Scroll to the tail of the demo output — the agentic trace summary:
+
+```
+Agentic pass (v2): investigating 3 of 166 flagged worker-days + monthly review
+  2026-09-01/W01: task=investigation, tool calls=4, verifier=pass, revisions=0
+```
+
+Then run, and slow-scroll past the plan, evidence, and verifier block:
+
+```bash
+head -c 1500 out/traces/2026-09-01_W01.json
+```
+
+**SAY:**
+> "Then a team of agents investigates the flagged days. A planner decides what
+> to check, an investigator gathers evidence through tools, a drafter writes
+> the note — and a verifier re-computes every single number before anything
+> is published. Every step is traced."
+
+---
+
+### Scene 4 — One worker's day (0:30–0:43)
+
+**SCREEN:**
+
+```bash
+cat out/daily_reports/2026-09-01/W01.md
+```
+
+Slow scroll: metrics table (fatigue_index **0.64**, focus_score **0.83**,
+safety_score **0.98**, units **145**, defects **4**), flag `high_fatigue`,
+the `## Investigation` section, then the summary.
+
+**SAY:**
+> "Here's one worker's day. Fatigue, focus and safety are fixed formulas, and
+> the flags come from fixed thresholds — Aria's fatigue index crossed zero
+> point six, so the day is flagged, and the agents explain why: elevated
+> fatigue versus the team, and a recurring pattern. If the language model is
+> offline, a template says the same numbers. The LLM phrases — it never
+> decides."
+
+---
+
+### Scene 5 — Serve the dashboard (0:43–0:49)
+
+**SCREEN:**
+
+```bash
+../.venv/bin/python -m shiftlens.cli serve
+```
+
+Note the printed port, then switch to the browser at `http://localhost:8200`
+(if it printed a different port, use that one).
+
+**SAY:**
+> "The dashboard serves locally — vanilla JavaScript, no CDN — so it runs on
+> a closed factory network."
+
+---
+
+### Scene 6 — Correlation scatter (0:49–0:59)
+
+**SCREEN:** Scroll to the correlation explorer (fatigue ↔ units selected).
+Hover two or three points, then rest the cursor on the dashed trend line.
+
+**SAY:**
+> "Two hundred and forty worker-days. Fatigue against output: r is minus zero
+> point six one — higher fatigue strongly tracks lower output. It's plain
+> Pearson correlation, computed from the standard library."
+
+---
+
+### Scene 7 — Team timeline (0:59–1:07)
+
+**SCREEN:** Scroll to the team daily line chart (units vs average fatigue).
+Point at one day where the lines pull apart.
+
+**SAY:**
+> "Day by day, the team timeline shows output dipping exactly where fatigue
+> climbs."
+
+---
+
+### Scene 8 — Findings (1:07–1:16)
+
+**SCREEN:** Scroll to the findings cards. Read the top card from the screen.
+
+**SAY:**
+> "Findings are threshold splits, computed from the data — never hardcoded.
+> Days above eighty-five decibels average a hundred and twenty-two percent
+> more defects per worker. Hot days drop PPE compliance by twelve percent."
+
+---
+
+### Scene 9 — Report browser (1:16–1:23)
+
+**SCREEN:** In the daily-report browser: pick date **2026-09-01**, then worker
+**W01 — Aria Kim**. The rendered report appears with its flag chip.
+
+**SAY:**
+> "And every day is browsable — pick a date, pick a worker, read the day the
+> agents wrote."
+
+---
+
+### Scene 10 — Close (1:23–1:30)
+
+**SCREEN:** Scroll back to the top of the dashboard; hold on the findings cards.
+
+**SAY:**
+> "ShiftLens. Deterministic where it counts, agentic where it helps — and every
+> number is verified. Every shift tells a story. We connect it to the numbers."
+
+---
+
+## THE 30-SECOND CUT-DOWN
+
+| # | Time | Screen | SAY (verbatim) |
+|---|------|--------|----------------|
+| 1 | 0:00–0:04 | Terminal at `ShiftLens/` | "ShiftLens — every shift tells a story; we connect it to the numbers." |
+| 2 | 0:04–0:11 | `demo` runs; findings + agentic trace summaries print | "One command ingests a month for eight workers, writes a daily report per worker, and correlates the month — then a multi-agent team investigates the flagged days, with self-verification." |
+| 3 | 0:11–0:18 | `cat out/daily_reports/2026-09-01/W01.md`, one slow scroll; flash `head -c 800 out/traces/2026-09-01_W01.json` | "Deterministic metrics, threshold flags — and every number an agent writes is re-computed by a verifier. The LLM only phrases. It never decides." |
+| 4 | 0:18–0:25 | `serve` → dashboard: scatter with trend line → findings cards | "On the dashboard: fatigue versus output across two hundred forty worker-days, and findings computed from the data — never hardcoded." |
+| 5 | 0:25–0:30 | Hold on the findings cards | "ShiftLens. Works offline, explains itself, and tells you why the month looked the way it did." |
+
+---
 
 ## Recording tips
 
-- **Font size:** terminal at 18–20 pt minimum (or ~150% zoom); browser zoomed to
-  125–150%. People will watch this on laptops and phones.
-- **Window layout:** full-screen terminal for the CLI shots, full-screen browser
-  (bookmarks bar hidden) for the dashboard. Record at 1920×1080 and pre-position
-  both windows before you start, so switching is one clean cut.
-- **Dry run:** do one complete end-to-end dry run before recording. The simulator
-  is seeded (`random.Random(42)`), so the numbers should be reproducible — but if
-  a finding or value differs on the day, read what's on the screen, not the script.
-- **Pre-flight:** run `demo` once before recording so `data/`, `out/` and
-  `out/traces/` already exist and the recorded run is fast and predictable. `demo`
-  investigates only the first 3 flagged worker-days (plus the monthly narrative) to
-  stay fast — run `demo --all-agents` in pre-flight if you want every trace on disk
-  for cutaways. `clear` the terminal between shots; a short prompt
-  (`export PS1='$ '`) reduces on-screen noise.
-- **Typing:** paste commands (or recall them from history with ↑) instead of
-  typing live — typos kill takes.
-- **Port check:** `serve` probes ports 8200–8209. Confirm the printed port before
-  switching to the browser; if it isn't 8200, use the printed one and adjust the
-  narration.
-- **LLM optional:** if LM Studio isn't running, the reports show template prose and
-  the agents run on heuristic plans (trace JSON shows `"llm_used": false`). That's a
-  feature — deliver the "works offline" line exactly as scripted.
-- **Cursor discipline:** keep the mouse still while narrating; move it only to
-  point at the thing you're talking about.
-- **Audio:** quiet room, notifications silenced. If one-take screen + voice keeps
-  going wrong, record the voiceover separately and lay it over the screen capture.
+- **Dry run first.** The simulator is seeded (`random.Random(42)`), so numbers
+  reproduce exactly — but if anything differs on the day, read the screen, not
+  the script.
+- **`clear` between shots**; keep the mouse still while narrating; move it only
+  to point at the thing you're talking about.
+- **Pace:** the SAY blocks run about 2.2 words/second — conversational, not
+  rushed. If you run long, trim Scene 7's line (it doubles Scene 6's point).
+- **Port check:** `serve` probes 8200–8209. Confirm the printed port before
+  switching windows; if it isn't 8200, adjust the Scene 5 line.
+- **Audio:** quiet room, notifications off. If one-take screen + voice keeps
+  failing, record the voiceover separately and lay it over the screen capture.
+- **If a judge asks "is this really agentic?"** — the answer is on disk:
+  `out/traces/` holds the plan, the tool calls, the evidence, the verifier's
+  verdict, and the revision count for every investigation.
