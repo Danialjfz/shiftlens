@@ -1,6 +1,6 @@
 # ShiftLens
 
-*By group **AeroApex** — AI Agent Competition, October 2026.*
+*By group **AeroApex** (<Egqalhari@gnu.ac.kr>) — AI Agent Competition, October 2026.*
 
 Agentic workforce analytics: daily worker data (sensors + micro-surveys +
 object-detection events) → agent-authored daily reports → a monthly dashboard
